@@ -280,16 +280,17 @@ pub fn ui(comptime Scene: type) type {
                 std.debug.assert(self.boxes.items[0].parent == null); // All boxes must be descendants of the root box
             }
 
-            /// Layout a box at its minimum size, in preparation for full layout
+            /// Layout a box at its minimum size, in preparation for full layout.
+            /// All children must have been laid out by this function beforehand.
             fn layoutMin(self: LayoutSystem, box: *Box) void {
+                // Compute minimum size
+                const minw = self.view_scale[0] * @intToFloat(f32, box.settings.min_size[0]);
+                const minh = self.view_scale[1] * @intToFloat(f32, box.settings.min_size[1]);
+                box.shape.w = std.math.max(box.shape.w, minw);
+                box.shape.h = std.math.max(box.shape.h, minh);
+
                 if (box.parent) |parent_id| {
                     const parent = self.s.getOne(box_component, parent_id).?;
-
-                    // Compute minimum size
-                    const minw = self.view_scale[0] * @intToFloat(f32, box.settings.min_size[0]);
-                    const minh = self.view_scale[1] * @intToFloat(f32, box.settings.min_size[1]);
-                    box.shape.w = std.math.max(box.shape.w, minw);
-                    box.shape.h = std.math.max(box.shape.h, minh);
 
                     // Add to parent minsize
                     const outer_size = self.pad(.out, box.shape, box.settings.margins);
@@ -307,11 +308,12 @@ pub fn ui(comptime Scene: type) type {
                     // Compute grow total (for second pass)
                     parent._grow_total += box.settings.grow;
                 } else {
-                    // Nothing to do, size is already sum of children
+                    // Nothing to do
                 }
             }
 
-            /// Layout a box at its full size
+            /// Layout a box at its full size.
+            /// All parents and prior siblings must have been laid out by this function beforehand.
             fn layoutFull(self: LayoutSystem, box: *Box) void {
                 if (box.parent) |parent_id| {
                     const parent = self.s.getOne(box_component, parent_id).?;
