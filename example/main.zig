@@ -1,6 +1,6 @@
 const std = @import("std");
 const gl = @import("zgl");
-const glfw = @import("glfw.zig");
+const glfw = @import("glfz");
 const ui = @import("znt-ui").ui(Scene);
 const znt = @import("znt");
 
@@ -35,8 +35,8 @@ pub fn main() !void {
 
     try glfw.init();
     const win = try glfw.Window.init(800, 600, "Hello, world!", .{
-        .context_version_major = 3,
-        .context_version_minor = 3,
+        .context_version_major = 4,
+        .context_version_minor = 5,
         .opengl_profile = .core,
         .opengl_forward_compat = true,
     });
@@ -54,38 +54,7 @@ pub fn main() !void {
     defer systems.deinit();
     win.setUserPointer(&systems);
 
-    const root = try scene.add(.{
-        .box = ui.Box.init(null, null, .{}),
-        .rect = ui.Rect.init(.{ 1, 1, 0, 0.4 }, ui.boxRect),
-    });
-    var box = try scene.add(.{
-        .box = ui.Box.init(root, null, .{ .margins = .{
-            .l = 100,
-            .b = 50,
-            .r = 200,
-            .t = 100,
-        }, .min_size = .{
-            70, 50,
-        } }),
-        .rect = ui.Rect.init(.{ 1, 0, 1, 0.4 }, ui.boxRect),
-    });
-    box = try scene.add(.{
-        .box = ui.Box.init(root, box, .{
-            .grow = 0,
-            .fill_cross = false,
-            .min_size = .{ 100, 800 },
-        }),
-        .rect = ui.Rect.init(.{ 0, 1, 0, 0.4 }, ui.boxRect),
-    });
-    box = try scene.add(.{
-        .box = ui.Box.init(root, box, .{ .margins = .{
-            .l = 200,
-            .b = 100,
-            .r = 100,
-            .t = 50,
-        } }),
-        .rect = ui.Rect.init(.{ 0, 1, 1, 0.4 }, ui.boxRect),
-    });
+    try initUi(&scene);
 
     _ = win.setWindowSizeCallback(sizeCallback);
     _ = win.setFramebufferSizeCallback(fbSizeCallback);
@@ -109,4 +78,55 @@ fn sizeCallback(win: *glfw.Window, w: c_int, h: c_int) callconv(.C) void {
 }
 fn fbSizeCallback(_: *glfw.Window, w: c_int, h: c_int) callconv(.C) void {
     gl.viewport(0, 0, @intCast(usize, w), @intCast(usize, h));
+}
+
+fn initUi(scene: *Scene) !void {
+    const margins = ui.Box.Margins{ .l = 10, .b = 10, .r = 10, .t = 10 };
+    const root = try scene.add(.{
+        .box = ui.Box.init(null, null, .{}),
+        .rect = ui.Rect.init(.{ 1, 1, 0, 0.4 }, ui.boxRect),
+    });
+
+    const level1 = try scene.add(.{
+        .box = ui.Box.init(root, null, .{
+            .margins = margins,
+            .direction = .col,
+        }),
+        .rect = ui.Rect.init(.{ 1, 0, 1, 0.4 }, ui.boxRect),
+    });
+    _ = try scene.add(.{
+        .box = ui.Box.init(root, level1, .{
+            .margins = margins,
+            .grow = 0,
+            .fill_cross = false,
+            .min_size = .{ 400, 400 },
+        }),
+        .rect = ui.Rect.init(.{ 0, 1, 0, 0.4 }, ui.boxRect),
+    });
+
+    var box = try scene.add(.{
+        .box = ui.Box.init(level1, null, .{
+            .margins = margins,
+            .grow = 0,
+            .min_size = .{ 50, 50 },
+        }),
+        .rect = ui.Rect.init(.{ 0, 1, 1, 0.4 }, ui.boxRect),
+    });
+    box = try scene.add(.{
+        .box = ui.Box.init(level1, box, .{
+            .margins = margins,
+            .fill_cross = false,
+            .min_size = .{ 300, 50 },
+        }),
+        .rect = ui.Rect.init(.{ 0.5, 0.5, 1, 0.4 }, ui.boxRect),
+    });
+    box = try scene.add(.{
+        .box = ui.Box.init(level1, box, .{
+            .margins = margins,
+            .grow = 0,
+            .fill_cross = false,
+            .min_size = .{ 100, 200 },
+        }),
+        .rect = ui.Rect.init(.{ 0.5, 0.5, 1, 0.4 }, ui.boxRect),
+    });
 }

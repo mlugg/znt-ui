@@ -6,6 +6,7 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     var deps = Deps.init(b);
+    deps.add("https://github.com/vktec/glfz", "main");
     deps.add("https://github.com/vktec/zgl", "master");
     deps.add("https://github.com/vktec/znt", "main");
     deps.add("https://github.com/vktec/znt-ui", "main");
