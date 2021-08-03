@@ -16,8 +16,8 @@ pub fn ui(comptime Scene: type) type {
 
             // Internal
             _visited: bool = false, // Has this box been processed yet?
-            _extra: f32 = undefined, // Amount of extra space in the main axis
-            _grow_total: f32 = undefined, // Total growth factor of all children
+            // Total growth of all children, or size of one growth unit, depending on what stage of layout we're at
+            _grow_total_or_unit: f32 = undefined,
             _offset: f32 = undefined, // Current offset into the box
 
             pub const Relation = enum {
@@ -250,7 +250,7 @@ pub fn ui(comptime Scene: type) type {
 
                         // Reset box
                         box.shape = .{ .x = 0, .y = 0, .w = 0, .h = 0 };
-                        box._grow_total = 0;
+                        box._grow_total_or_unit = 0;
                         box._offset = 0;
 
                         self.boxes.appendAssumeCapacity(box);
@@ -306,43 +306,41 @@ pub fn ui(comptime Scene: type) type {
                     }
 
                     // Compute grow total (for second pass)
-                    parent._grow_total += box.settings.grow;
-                } else {
-                    // Nothing to do
+                    parent._grow_total_or_unit += box.settings.grow;
                 }
             }
 
             /// Layout a box at its full size.
             /// All parents and prior siblings must have been laid out by this function beforehand.
             fn layoutFull(self: LayoutSystem, box: *Box) void {
+                // Default shape is OpenGL full screen plane, padded inwards by margin
+                var shape = self.pad(.in, .{ .x = -1, .y = -1, .w = 2, .h = 2 }, box.settings.margins);
                 if (box.parent) |parent_id| {
                     const parent = self.s.getOne(box_component, parent_id).?;
 
-                    if (parent._grow_total == 0) {
-                        box._extra = 0;
-                    } else {
-                        // TODO: lift this division up a layer - should allow moving _grow_total into the temporary usage of shape
-                        box._extra = box.settings.grow * parent._extra / parent._grow_total;
-                    }
-
                     const main_axis = @enumToInt(parent.settings.direction);
                     const cross_axis = 1 - main_axis;
-                    var shape = self.pad(.in, parent.shape, box.settings.margins); // Compute initial shape
-                    shape.dim(main_axis).* = std.math.max(0, box.shape.dim(main_axis).* + box._extra); // Replace main axis size
+
+                    const main_growth = box.settings.grow * parent._grow_total_or_unit;
+                    const main_size = box.shape.dim(main_axis).* + main_growth;
+
+                    shape = self.pad(.in, parent.shape, box.settings.margins); // Compute initial shape
+                    shape.dim(main_axis).* = std.math.max(0, main_size); // Replace main axis size
                     shape.coord(main_axis).* += parent._offset; // Adjust main axis position
                     if (!box.settings.fill_cross) { // If we're not filling cross axis, replace with min cross size
                         shape.dim(cross_axis).* = box.shape.dim(cross_axis).*;
                     }
-                    parent._offset += self.pad(.out, shape, box.settings.margins).dim(main_axis).*; // Advance parent offset
 
-                    // Set new shape
-                    box.shape = shape;
-                } else {
-                    var shape = self.pad(.in, .{ .x = -1, .y = -1, .w = 2, .h = 2 }, box.settings.margins);
-                    const child_main_axis = @enumToInt(box.settings.direction);
-                    box._extra = std.math.max(0, shape.dim(child_main_axis).* - box.shape.dim(child_main_axis).*);
-                    box.shape = shape;
+                    // Advance parent offset
+                    parent._offset += self.pad(.out, shape, box.settings.margins).dim(main_axis).*;
                 }
+
+                const child_main_axis = @enumToInt(box.settings.direction);
+                const extra_space = shape.dim(child_main_axis).* - box.shape.dim(child_main_axis).*;
+                if (box._grow_total_or_unit != 0) {
+                    box._grow_total_or_unit = std.math.max(0, extra_space) / box._grow_total_or_unit;
+                }
+                box.shape = shape;
             }
 
             const PaddingSide = enum { in, out };
