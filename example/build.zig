@@ -9,7 +9,8 @@ pub fn build(b: *std.build.Builder) void {
     deps.add("https://github.com/vktec/glfz", "main");
     deps.add("https://github.com/vktec/zgl", "master");
     deps.add("https://github.com/vktec/znt", "main");
-    deps.add("https://github.com/vktec/znt-ui", "main");
+    // deps.add("https://github.com/vktec/znt-ui", "main"); // This is what you should use in your projects...
+    deps.addPackagePath("znt-ui", "../znt-ui.zig"); // ...but we use this here for testing purposes
 
     const exe = b.addExecutable("example", "main.zig");
     deps.addTo(exe);

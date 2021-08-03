@@ -219,17 +219,19 @@ pub fn ui(comptime Scene: type) type {
                 while (i > 0) {
                     i -= 1;
                     const box = self.boxes.items[i];
-                    self.layoutInternal(box, true);
+                    self.layoutMin(box);
                 }
 
                 // Compute layout
                 // Iterate forwards so we compute parent capacities before fitting children to them
                 for (self.boxes.items) |box| {
-                    self.layoutInternal(box, false);
+                    self.layoutFull(box);
                     box._visited = false; // Reset the visited flag while we're here
                 }
             }
 
+            /// Collect the scene's boxes into the box list, with parents before children, and siblings in order
+            /// Also resets boxes in preparation for layout
             fn resetAndCollectBoxes(self: *LayoutSystem) !void {
                 self.boxes.clearRetainingCapacity();
                 try self.boxes.ensureTotalCapacity(self.s.count(box_component));
@@ -244,9 +246,13 @@ pub fn ui(comptime Scene: type) type {
                     // Reset and append the box, followed by all siblings and parents
                     const start = self.boxes.items.len;
                     while (!box._visited) {
-                        box._visited = true;
+                        box._visited = true; // Tag as visited
+
+                        // Reset box
                         box.shape = .{ .x = 0, .y = 0, .w = 0, .h = 0 };
                         box._grow_total = 0;
+                        box._offset = 0;
+
                         self.boxes.appendAssumeCapacity(box);
 
                         if (box.sibling) |id| {
@@ -274,51 +280,66 @@ pub fn ui(comptime Scene: type) type {
                 std.debug.assert(self.boxes.items[0].parent == null); // All boxes must be descendants of the root box
             }
 
-            fn layoutInternal(self: LayoutSystem, box: *Box, min: bool) void {
+            /// Layout a box at its minimum size, in preparation for full layout
+            fn layoutMin(self: LayoutSystem, box: *Box) void {
                 if (box.parent) |parent_id| {
                     const parent = self.s.getOne(box_component, parent_id).?;
 
-                    if (min) {
-                        // Compute minimum size of current box
-                        const minw = self.view_scale[0] * @intToFloat(f32, box.settings.min_size[0]);
-                        const minh = self.view_scale[1] * @intToFloat(f32, box.settings.min_size[1]);
-                        box.shape.w = std.math.max(box.shape.w, minw);
-                        box.shape.h = std.math.max(box.shape.h, minh);
+                    // Compute minimum size
+                    const minw = self.view_scale[0] * @intToFloat(f32, box.settings.min_size[0]);
+                    const minh = self.view_scale[1] * @intToFloat(f32, box.settings.min_size[1]);
+                    box.shape.w = std.math.max(box.shape.w, minw);
+                    box.shape.h = std.math.max(box.shape.h, minh);
 
-                        // Add minimum outer size to parent size
-                        const outer = self.pad(.out, box.shape, box.settings.margins);
-                        parent.shape.w += outer.w;
-                        parent.shape.h += outer.h;
-
-                        // Compute values for next pass
-                        parent._grow_total += box.settings.grow;
-                    } else {
-                        var shape = self.pad(.in, parent.shape, box.settings.margins);
-                        if (parent._grow_total == 0) {
-                            box._extra = 0;
-                        } else {
-                            // TODO: lift this division up a layer - should allow moving _grow_total into the temporary usage of shape
-                            box._extra = box.settings.grow * parent._extra / parent._grow_total;
-                        }
-
-                        const main_axis = @enumToInt(box.settings.direction);
-                        const cross_axis = 1 - main_axis;
-                        shape.dim(main_axis).* = std.math.max(0, box.shape.dim(main_axis).* + box._extra);
-                        shape.coord(main_axis).* += parent._offset;
-                        if (!box.settings.fill_cross) {
-                            shape.dim(cross_axis).* = box.shape.dim(cross_axis).*;
-                        }
-                        parent._offset += self.pad(.out, shape, box.settings.margins).dim(main_axis).*;
-
-                        box.shape = shape;
-                        box._offset = 0;
+                    // Add to parent minsize
+                    const outer_size = self.pad(.out, box.shape, box.settings.margins);
+                    switch (parent.settings.direction) {
+                        .row => {
+                            parent.shape.w += outer_size.w;
+                            parent.shape.h = std.math.max(parent.shape.h, outer_size.h);
+                        },
+                        .col => {
+                            parent.shape.w = std.math.max(parent.shape.w, outer_size.w);
+                            parent.shape.h += outer_size.h;
+                        },
                     }
-                } else if (!min) {
-                    var shape = self.pad(.in, .{ .x = -1, .y = -1, .w = 2, .h = 2 }, box.settings.margins);
-                    const main_axis = @enumToInt(box.settings.direction);
-                    box._extra = std.math.max(0, shape.dim(main_axis).* - box.shape.dim(main_axis).*);
+
+                    // Compute grow total (for second pass)
+                    parent._grow_total += box.settings.grow;
+                } else {
+                    // Nothing to do, size is already sum of children
+                }
+            }
+
+            /// Layout a box at its full size
+            fn layoutFull(self: LayoutSystem, box: *Box) void {
+                if (box.parent) |parent_id| {
+                    const parent = self.s.getOne(box_component, parent_id).?;
+
+                    if (parent._grow_total == 0) {
+                        box._extra = 0;
+                    } else {
+                        // TODO: lift this division up a layer - should allow moving _grow_total into the temporary usage of shape
+                        box._extra = box.settings.grow * parent._extra / parent._grow_total;
+                    }
+
+                    const main_axis = @enumToInt(parent.settings.direction);
+                    const cross_axis = 1 - main_axis;
+                    var shape = self.pad(.in, parent.shape, box.settings.margins); // Compute initial shape
+                    shape.dim(main_axis).* = std.math.max(0, box.shape.dim(main_axis).* + box._extra); // Replace main axis size
+                    shape.coord(main_axis).* += parent._offset; // Adjust main axis position
+                    if (!box.settings.fill_cross) { // If we're not filling cross axis, replace with min cross size
+                        shape.dim(cross_axis).* = box.shape.dim(cross_axis).*;
+                    }
+                    parent._offset += self.pad(.out, shape, box.settings.margins).dim(main_axis).*; // Advance parent offset
+
+                    // Set new shape
                     box.shape = shape;
-                    box._offset = 0;
+                } else {
+                    var shape = self.pad(.in, .{ .x = -1, .y = -1, .w = 2, .h = 2 }, box.settings.margins);
+                    const child_main_axis = @enumToInt(box.settings.direction);
+                    box._extra = std.math.max(0, shape.dim(child_main_axis).* - box.shape.dim(child_main_axis).*);
+                    box.shape = shape;
                 }
             }
 
