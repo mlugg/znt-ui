@@ -53,11 +53,6 @@ pub fn ui(comptime Scene: type) type {
             pub fn init(color: [4]f32, shapeFn: fn (*Scene, znt.EntityId) RectShape) Rect {
                 return .{ .color = color, .shapeFn = shapeFn };
             }
-
-            pub fn draw(self: Rect, scene: *Scene, eid: znt.EntityId, ren: *Renderer) void {
-                const rect = self.shapeFn(scene, eid);
-                ren.drawRect(rect, self.color);
-            }
         };
         pub const RectShape = struct {
             x: f32,
@@ -84,8 +79,9 @@ pub fn ui(comptime Scene: type) type {
             prog: gl.Program,
             u_color: ?u32,
             buf: gl.Buffer,
+            origin: RenderSystem.Origin,
 
-            pub fn init() Renderer {
+            pub fn init(origin: RenderSystem.Origin) Renderer {
                 const vao = gl.VertexArray.create();
                 vao.enableVertexAttribute(0);
                 vao.attribFormat(0, 2, .float, false, 0);
@@ -103,6 +99,7 @@ pub fn ui(comptime Scene: type) type {
                     .prog = prog,
                     .u_color = u_color,
                     .buf = buf,
+                    .origin = origin,
                 };
             }
 
@@ -162,16 +159,31 @@ pub fn ui(comptime Scene: type) type {
 
                 while (true) {
                     const buf = self.buf.mapRange([2]gl.Float, 0, 4, .{ .write = true });
-                    buf[0] = .{ rect.x, rect.y };
-                    buf[1] = .{ rect.x, rect.y + rect.h };
-                    buf[2] = .{ rect.x + rect.w, rect.y };
-                    buf[3] = .{ rect.x + rect.w, rect.y + rect.h };
+                    buf[0] = self.coord(.{ rect.x, rect.y });
+                    buf[1] = self.coord(.{ rect.x, rect.y + rect.h });
+                    buf[2] = self.coord(.{ rect.x + rect.w, rect.y });
+                    buf[3] = self.coord(.{ rect.x + rect.w, rect.y + rect.h });
                     if (self.buf.unmap()) break;
                 }
 
                 self.vao.bind();
                 self.prog.use();
                 gl.drawArrays(.triangle_strip, 0, 4);
+            }
+
+            /// Origin-adjust a coordinate
+            fn coord(self: Renderer, input_coord: [2]gl.Float) [2]gl.Float {
+                var c = input_coord;
+                switch (self.origin) {
+                    .bottom_left => {}, // Nothing to do
+                    .bottom_right => c[0] = -c[0], // Flip X
+                    .top_left => c[1] = -c[1], // Flip Y
+                    .top_right => { // Flip X and Y
+                        c[0] = -c[0];
+                        c[1] = -c[1];
+                    },
+                }
+                return c;
             }
         };
 
@@ -372,8 +384,15 @@ pub fn ui(comptime Scene: type) type {
             s: *Scene,
             renderer: Renderer,
 
-            pub fn init(scene: *Scene) RenderSystem {
-                return .{ .s = scene, .renderer = Renderer.init() };
+            pub const Origin = enum {
+                top_left,
+                top_right,
+                bottom_left,
+                bottom_right,
+            };
+
+            pub fn init(scene: *Scene, origin: Origin) RenderSystem {
+                return .{ .s = scene, .renderer = Renderer.init(origin) };
             }
             pub fn deinit(self: RenderSystem) void {
                 self.renderer.deinit();
@@ -383,7 +402,8 @@ pub fn ui(comptime Scene: type) type {
                 var iter = self.s.iter(&.{rect_component});
                 while (iter.next()) |entity| {
                     const rect = @field(entity, @tagName(rect_component));
-                    rect.draw(self.s, entity.id, &self.renderer);
+                    var shape = rect.shapeFn(self.s, entity.id);
+                    self.renderer.drawRect(shape, rect.color);
                 }
             }
         };

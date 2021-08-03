@@ -15,7 +15,7 @@ const Systems = struct {
     pub fn init(allocator: *std.mem.Allocator, scene: *Scene, viewport_size: [2]u31) Systems {
         return .{
             .layout = ui.LayoutSystem.init(allocator, scene, viewport_size),
-            .render = ui.RenderSystem.init(scene),
+            .render = ui.RenderSystem.init(scene, .top_left),
         };
     }
     pub fn deinit(self: Systems) void {
