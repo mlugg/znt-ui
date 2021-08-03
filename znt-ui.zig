@@ -347,6 +347,10 @@ pub fn ui(comptime Scene: type) type {
                     parent._offset += self.pad(.out, shape, box.settings.margins).dim(main_axis).*;
                 }
 
+                // Clamp to min size
+                shape.w = std.math.max(shape.w, box.shape.w);
+                shape.h = std.math.max(shape.h, box.shape.h);
+
                 const child_main_axis = @enumToInt(box.settings.direction);
                 const extra_space = shape.dim(child_main_axis).* - box.shape.dim(child_main_axis).*;
                 if (box._grow_total_or_unit != 0) {
