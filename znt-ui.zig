@@ -195,15 +195,20 @@ pub fn ui(comptime Scene: type) type {
 
         /// The LayoutSystem arranges a tree of nested boxes according to their constraints
         pub const LayoutSystem = struct {
+            const BoxEntity = struct {
+                id: znt.EntityId,
+                box: *Box,
+            };
+
             s: *Scene,
-            boxes: std.ArrayList(*Box),
+            boxes: std.ArrayList(BoxEntity),
             view_scale: [2]f32, // Viewport scale
 
             // Viewport width and height should be in screen units, not pixels
             pub fn init(allocator: *std.mem.Allocator, scene: *Scene, viewport_size: [2]u31) LayoutSystem {
                 var self = LayoutSystem{
                     .s = scene,
-                    .boxes = std.ArrayList(*Box).init(allocator),
+                    .boxes = std.ArrayList(BoxEntity).init(allocator),
                     .view_scale = undefined,
                 };
                 self.setViewport(viewport_size);
@@ -230,15 +235,15 @@ pub fn ui(comptime Scene: type) type {
                 var i = self.boxes.items.len;
                 while (i > 0) {
                     i -= 1;
-                    const box = self.boxes.items[i];
-                    self.layoutMin(box);
+                    const ent = self.boxes.items[i];
+                    self.layoutMin(ent.box);
                 }
 
                 // Compute layout
                 // Iterate forwards so we compute parent capacities before fitting children to them
-                for (self.boxes.items) |box| {
-                    self.layoutFull(box);
-                    box._visited = false; // Reset the visited flag while we're here
+                for (self.boxes.items) |ent| {
+                    self.layoutFull(ent.box);
+                    ent.box._visited = false; // Reset the visited flag while we're here
                 }
             }
 
@@ -265,7 +270,10 @@ pub fn ui(comptime Scene: type) type {
                         box._grow_total_or_unit = 0;
                         box._offset = 0;
 
-                        self.boxes.appendAssumeCapacity(box);
+                        self.boxes.appendAssumeCapacity(.{
+                            .id = entity.id,
+                            .box = entity.box,
+                        });
 
                         if (box.sibling) |id| {
                             const sibling = self.s.getOne(box_component, id).?;
@@ -283,13 +291,13 @@ pub fn ui(comptime Scene: type) type {
                     }
 
                     // Then reverse the appended data to put the parents first
-                    std.mem.reverse(*Box, self.boxes.items[start..]);
+                    std.mem.reverse(BoxEntity, self.boxes.items[start..]);
 
                     entity = iter.next() orelse break;
                 }
 
                 std.debug.assert(have_root); // There must be one root box if there are any boxes
-                std.debug.assert(self.boxes.items[0].parent == null); // All boxes must be descendants of the root box
+                std.debug.assert(self.boxes.items[0].box.parent == null); // All boxes must be descendants of the root box
             }
 
             /// Layout a box at its minimum size, in preparation for full layout.
@@ -380,6 +388,24 @@ pub fn ui(comptime Scene: type) type {
                         .h = rect.h + mh,
                     },
                 };
+            }
+
+            pub fn resolveCoordinate(self: *LayoutSystem, x: u31, y: u31) ?znt.EntityId {
+                const fx = self.view_scale[0] * @intToFloat(f32, x) - 1;
+                const fy = self.view_scale[1] * @intToFloat(f32, y) - 1;
+
+                var i = self.boxes.items.len;
+                while (i > 0) {
+                    i -= 1;
+                    var ent = self.boxes.items[i];
+                    if (fx < ent.box.shape.x) continue;
+                    if (fy < ent.box.shape.y) continue;
+                    if (fx > ent.box.shape.x + ent.box.shape.w) continue;
+                    if (fy > ent.box.shape.y + ent.box.shape.h) continue;
+                    return ent.id;
+                }
+
+                return null;
             }
         };
 
